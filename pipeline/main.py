@@ -10,11 +10,6 @@ import logging
 from optparse import OptionParser
 from arango import ArangoClient
 
-logging.addLevelName(5, 'TRACE')
-logging.addLevelName(3, 'MICROTRACE')
-logformat = '%(asctime)s - [%(module)s] %(levelname)s - %(message)s'
-logging.basicConfig(format=logformat, datefmt='%H:%M:%S')
-
 
 def log(lvl, msg, *args, **kwargs):
     logging.log(logging.getLevelName(lvl), msg, *args, **kwargs)
@@ -52,43 +47,63 @@ class Pipeline:
 
 
 class SourceFiles:
-    def __init__(self, maildir, limit=None):
+    def __init__(self, maildir, limit=None, skip=0):
         self.maildir = maildir
         self.mailparser = ep.Parser()
         self.limit = limit
         self.current_root = ''
         self.current_stripped = ''
+        self.skip = skip
 
     def __iter__(self):
         self.run = 0
         self.os_walker = os.walk(self.maildir)
         self.current_dirs = []
         self.current_files = iter([])
+        log('INFO', 'Created Source Iterator. It will skip %d files, then read %d files from %s',
+            self.skip, self.limit, self.maildir)
+
+        for i in range(self.skip):
+            self.run += 1
+            self._next_file(skipmode=True)
         return self
 
     def _next_dir(self):
         self.current_root, self.current_dirs, files = next(self.os_walker)
         self.current_stripped = self.current_root[len(self.maildir):]
-        logging.info('Entering directory ./%s/ with %d files and %d directories',
-                     self.current_stripped, len(files), len(self.current_dirs))
+        logging.info('Entering directory with %d files and %d subdirectories: %s/',
+                     len(files), len(self.current_dirs), self.current_stripped)
 
         if len(files) > 0:
             self.current_files = iter(files)
         else:
             self._next_dir()
 
-    def _next_file(self):
+    def _next_file(self, skipmode=False):
         try:
-            file = next(self.current_files)
-            with open(self.current_root + "/" + file, "r", errors='ignore') as f:
-                self.run += 1
-                return self.current_stripped, file, self.mailparser.parsestr(f.read())
+            filename = next(self.current_files)
+            log('DEBUG', 'Iterator is looking at this file (skip=%s): %s/%s', skipmode, self.current_root, filename)
+
+            # save some effort when result is dumped anyway during skip-ahead
+            if not skipmode:
+                with open(self.current_root + "/" + filename, "r", errors='ignore') as f:
+                    self.run += 1
+                    file = f.read()
+
+                    # must be something off here, skipping
+                    if len(file) < 100:
+                        log('WARNING', 'Skipping file because it is too small (%d chars): %s/%s',
+                            len(file), self.current_root, filename)
+                        return self._next_file()
+
+                    return self.current_stripped, filename, self.mailparser.parsestr(file)
         except StopIteration:
             self._next_dir()
+            log('DEBUG', 'Iterator had to switch directories')
             return self._next_file()
 
     def __next__(self):
-        if self.limit is not None and self.limit <= self.run:
+        if self.limit is not None and (self.limit + self.skip) <= self.run:
             logging.info('max number of mails (LIMIT=%d) is reached.', self.limit)
             raise StopIteration()
 
@@ -129,6 +144,12 @@ oparser.add_option("-n", "--limit",
                    help="limit number of mails to read to NUM",
                    type='int',
                    default=None)
+oparser.add_option("-s", "--skip",
+                   dest="skip",
+                   metavar="NUM",
+                   help="number (NUM) of mails to skip reading",
+                   type='int',
+                   default=0)
 oparser.add_option("--keras-model",
                    dest="keras_model",
                    metavar="FILE",
@@ -205,21 +226,23 @@ oparser.add_option("-l", "--log-level",
                    choices=['MICROTRACE', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'],
                    default='INFO')
 
-
 if __name__ == "__main__":
     (options, args) = oparser.parse_args()
 
-    logging.root.setLevel(logging.getLevelName(options.log_level))
+    logging.addLevelName(5, 'TRACE')
+    logging.addLevelName(3, 'MICROTRACE')
+    logformat = '%(asctime)s - [%(module)s] %(levelname)s - %(message)s'
+    logging.basicConfig(level=logging.getLevelName(options.log_level),
+                        format=logformat, datefmt='%H:%M:%S')
 
     if options.log_file:
-        log('INFO', 'Writing log to file: %s at level %s', options.log_file, options.log_level)
+        log('INFO', 'Writing log to file: %s at level %s', options.log_file, options.log_file_level)
         hdlr = logging.FileHandler(options.log_file, mode='w')
+        hdlr.setLevel(logging.getLevelName(options.log_file_level))
         hdlr.setFormatter(logging.Formatter(logformat, datefmt='%H:%M:%S'))
-        hdlr.setLevel(options.log_file_level)
         logging.root.addHandler(hdlr)
     else:
         log('INFO', 'No log file specified.')
-
 
     from splitting_feature_rnn import Splitter
     from mixins import BodyCleanup, Tuples2Dicts
@@ -241,10 +264,9 @@ if __name__ == "__main__":
 
     read_cnt = 0
 
-    data_source = SourceFiles(options.maildir, limit=options.limit)
+    data_source = SourceFiles(options.maildir, skip=options.skip, limit=options.limit)
     data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
                                options.arango_db, options.arango_collection, save=options.arango_no_save)
-
 
     for path, filename, mail in data_source:
         log('TRACE', 'Got mail from source: %s/%s', path, filename)
