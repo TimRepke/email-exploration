@@ -16,4 +16,15 @@ There are many versions of the Enron Corpus around:
 - https://www.cs.cmu.edu/~./enron/
 - ...
 
-Download the original (first) one and store it in `data/original/`.
+Download the original set (first in the list) and store it in `data/original/`.
+
+## Requirements
+Install and run arangodb
+```
+yaourt -S arangodb
+sudo systemctl start arangodb.service
+```
+Install python dependencies
+```
+pip install numpy, pandas, keras, python-arango
+```

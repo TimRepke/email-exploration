@@ -1,11 +1,7 @@
 #!/usr/bin/python
 
-import sys, getopt
-from pymongo import MongoClient
 from email import parser as ep
-from pprint import pprint
 import os
-import re
 import logging
 from optparse import OptionParser
 from arango import ArangoClient
