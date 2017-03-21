@@ -4,7 +4,7 @@ from email import parser as ep
 import os
 import logging
 from optparse import OptionParser
-from arango import ArangoClient
+import arango
 
 
 def log(lvl, msg, *args, **kwargs):
@@ -108,7 +108,7 @@ class SourceFiles:
 
 class DataSinkArango:
     def __init__(self, user, pw, port=8529, db='enron', collection='mails', save=True, logging=True):
-        self.client = ArangoClient(
+        self.client = arango.ArangoClient(
             protocol='http',
             host='localhost',
             port=port,
@@ -116,7 +116,22 @@ class DataSinkArango:
             password=pw,
             enable_logging=logging
         )
-        self.collection = self.client.database(db).collection(collection)
+        try:
+            self.client.create_database(db)
+        except arango.ArangoError:
+            pass
+        try:
+            self.client.database(db).create_collection(collection)
+        except arango.ArangoError:
+            pass
+        try:
+            self.client.database(db).create_collection('users')
+        except arango.ArangoError:
+            pass
+
+        self.mails = self.client.database(db).collection(collection)
+        self.users = self.client.database(db).collection('users')
+
         self.save = save
         log('INFO', 'DataSink connects to port %d for collection "%s" in database "%s", active: %s',
             port, collection, db, save)

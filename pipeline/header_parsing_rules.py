@@ -111,6 +111,10 @@ class ParseAuthors:
 
     def _process_author(self, s):
         name = re.sub(r"[a-z0-9_\-.]+@[a-z0-9_\-.]+\.[a-z]+", '', (s or ''), flags=re.IGNORECASE).strip()
+        name = re.sub(r"@.+$", '', name)
+        name = re.sub(r"\(r\)|\.|\d|\(|\)|\[|\]|=", '', name)
+        name = re.sub(r"\s+", ' ', name)
+
         if ',' in name:  # fix format: surname, firstname
             name = ' '.join(reversed([sp.strip() for sp in name.split(',')]))
 
