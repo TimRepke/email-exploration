@@ -1,5 +1,6 @@
 import re
 import logging
+from dateutil.parser import parse as dateparser
 
 
 def log(lvl, msg, *args, **kwargs):
@@ -48,7 +49,7 @@ class ParseHeaderComponents:
         # clean the extracted head
         head = self._clean_head(raw['head_raw'])
 
-        keywords = re.finditer(r"(from|to|cc|bcc|subj|subject|date|sent):", head,
+        keywords = re.finditer(r"(from|(?<!mail)to|cc|bcc|subj|subject|date|sent):", head,
                                re.IGNORECASE | re.DOTALL | re.VERBOSE)
         try:
             grp = next(keywords)
@@ -57,14 +58,14 @@ class ParseHeaderComponents:
 
             for grp in keywords:
                 txt = head[kw_end:grp.start()]
-                raw['head'][self._kw2key(kw)] = txt
+                raw['head'][self._kw2key(kw)] = txt.strip()
                 kw = grp.group(1)
                 kw_end = grp.end()
 
             if ' on ' in raw['head']['from'].lower() and not raw['head']['date']:
                 tmp = raw['head']['from'].lower().split(' on ')
-                raw['head']['from'] = tmp[0]
-                raw['head']['date'] = tmp[1]
+                raw['head']['from'] = tmp[0].strip()
+                raw['head']['date'] = tmp[1].strip()
 
             raw['subject'] = self._clean_subject(raw['head']['subject'])
         except StopIteration:
@@ -88,17 +89,18 @@ class ParseAuthors:
         s = re.sub(r'\n', '', (s or ''))
         s = re.sub(r'<(/\w+=[^/>]+)+>,', ';', (s or ''))
         s = re.sub(r'<(/\w+=[^/>]+)+>', '', (s or ''))
-        s = re.sub(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}) ?\[[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\]',
-                   '\g<1>', (s or ''), flags=re.IGNORECASE)
+        s = re.sub(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}) ?\[([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\]',
+                   '\g<1> \g<2>', (s or ''), flags=re.IGNORECASE)
         s = re.sub(r"'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})',", '\g<1>;', (s or ''), flags=re.IGNORECASE)
         s = re.sub(r"'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})'", '\g<1>', (s or ''), flags=re.IGNORECASE)
         s = re.sub(r'.+on behalf of ((?:[A-Z0-9._%+-]| )+@[A-Z0-9.-]+(:?\.[A-Z]{2,})?)',
                    '\g<1>', (s or ''), flags=re.IGNORECASE)
-        s = re.sub(r"'?([^',]+, ?[^',]+)'? <[^>]+>,", '\g<1>;', (s or ''), flags=re.IGNORECASE)
-        s = re.sub(r"'?([^',]+, ?[^',]+)'? <[^>]+>", '\g<1>', (s or ''), flags=re.IGNORECASE)
-        s = re.sub(r"'?([^',]+)'? ?<[^>]+>", '\g<1>', (s or ''), flags=re.IGNORECASE)
-        s = re.sub(r"'?((?:[^', ]+){2,3})'? \[[^>]+\]", '\g<1>', (s or ''))
+        s = re.sub(r"'?([^',]+, ?[^',]+)'? <([^>]+)>,", '\g<1> \g<2>;', (s or ''), flags=re.IGNORECASE)
+        s = re.sub(r"'?([^',]+, ?[^',]+)'? <([^>]+)>", '\g<1> \g<2>', (s or ''), flags=re.IGNORECASE)
+        s = re.sub(r"'?([^',]+)'? ?<([^>]+)>", '\g<1> \g<2>', (s or ''), flags=re.IGNORECASE)
+        s = re.sub(r"'?((?:[^', ]+){2,3})'? \[([^>]+)\]", '\g<1> \g<2>', (s or ''))
         s = re.sub(r'\\|"', '', (s or ''))
+        s = re.sub(r'mailto:', '', (s or ''))
         s = s.strip().lower()
         s = re.sub(r'^\W*(.+?)\W*$', '\g<1>', (s or ''), flags=re.IGNORECASE)
         s = re.sub(r'^([^/]+)/.*$', '\g<1>', (s or ''), flags=re.IGNORECASE)
@@ -107,18 +109,28 @@ class ParseAuthors:
 
         return s.strip().lower()
 
-    def _process_author(self, s, i, kind):
+    def _process_author(self, s):
+        name = re.sub(r"[a-z0-9_\-.]+@[a-z0-9_\-.]+\.[a-z]+", '', (s or ''), flags=re.IGNORECASE).strip()
+        if ',' in name:  # fix format: surname, firstname
+            name = ' '.join(reversed([sp.strip() for sp in name.split(',')]))
+
+        mail = re.sub(r".*?([a-z0-9_\-.]+@[a-z0-9_\-.]+\.[a-z]+).*", '\g<1>', (s or ''),
+                      flags=re.IGNORECASE).strip() if '@' in s else ''
+
+        log('MICROTRACE', 'Processing s="%s" and extracted name="%s" and email="%s"', s, name, mail)
+
         return {
-            'name': s,
-            'pos': i,
-            'kind': kind
+            'name': name,
+            'email': mail
         }
 
     def _split_authors(self, s, kind):
         authors = self._prepare_string(s).split(';')
         ret = []
         for i, author in enumerate(authors):
-            tmp = self._process_author(author, i, kind)
+            tmp = self._process_author(author)
+            tmp['pos'] = i
+            tmp['kind'] = kind
             if tmp['name']:
                 ret.append(tmp)
         return ret
@@ -131,10 +143,8 @@ class ParseAuthors:
 
     def transform(self, mail, processed):
         for i, part in enumerate(processed):
-            processed[i]['recipients'] = self._transform_recipients(processed[i]['head'])
-            processed[i]['sender'] = {
-                'name': self._prepare_string(processed[i]['head']['from'])
-            }
+            processed[i]['recipients'] = self._transform_recipients(part['head'])
+            processed[i]['sender'] = self._process_author(self._prepare_string(part['head']['from']))
 
         return processed
 
@@ -147,7 +157,16 @@ class ParseDate:
     def prepare(self, *args, **kwargs):
         pass
 
+    def _parse(self, s):
+        try:
+            date = dateparser(s, fuzzy=True)
+            return date.strftime('%Y/%m/%d %H:%M')
+        except ValueError as e:
+            log('WARN', 'Failed to parse date="%s" which triggered an error: %s', s, e)
+
     def transform(self, mail, processed):
+        for i, part in enumerate(processed):
+            processed[i]['date'] = self._parse(part['head']['date'] or '')
         return processed
 
 # def parseUser(s):

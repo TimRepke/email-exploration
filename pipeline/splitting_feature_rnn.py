@@ -231,18 +231,19 @@ class Splitter:
         frame = pd.DataFrame(tmpx)
         nested_X, _, _, nested_index = self._mail2nested(frame)
 
-        nested_yp = self.model.predict_proba(np.array(nested_X))
+        nested_yp = self.model.predict_proba(np.array(nested_X), verbose=0)
         y_proba, y, index = self._flatten_prediction(nested_yp, nested_index)
         y_fixed, parts = self._prediction2split(y_proba, y, frame, index)
 
         parts = []
         tmppart = {'H': [], 'B': [], 'S': []}
         lasty = y_fixed[0]
-        for y, line in zip(y_fixed, processed):
+        for y, line in zip(y_fixed, spl):
             if y == self.annotation_map['H'] and lasty != y:
                 parts.append(('\n'.join(tmppart['H']), '\n'.join(tmppart['B']), '\n'.join(tmppart['S'])))
                 tmppart = {'H': [], 'B': [], 'S': []}
             tmppart[self.annotation_map_inv[y]].append(line)
+            lasty = y
         parts.append(('\n'.join(tmppart['H']), '\n'.join(tmppart['B']), '\n'.join(tmppart['S'])))
 
         return parts
@@ -477,10 +478,9 @@ class Splitter:
         tmpblob = []
         for li, (n, line) in enumerate(frame.loc[index].iterrows()):
             try:
-                typ[annot[li]] += 1
                 if li in breaks:
-                    log('MICROTRACE', " ## BREAK ## %d -> %f", typ,
-                        np.array(list(typ.values())) / np.array(list(typ.values())).sum())
+                    log('MICROTRACE', " ## BREAK ## %s -> %s", typ,
+                        list(np.array(list(typ.values())) / np.array(list(typ.values())).sum()))
 
                     # find the dominating annotation type
                     blobtype = max(typ, key=typ.get)
@@ -490,6 +490,7 @@ class Splitter:
 
                     # add adjusted annotation
                     yp_fixed += [self.annotation_map[blobtype]] * len(tmpblob)
+                    log('MICROTRACE', 'Adding to yp_fixed += %s', [self.annotation_map[blobtype]] * len(tmpblob))
 
                     # clear helpers
                     tmpblob = []
@@ -511,9 +512,10 @@ class Splitter:
                     (", ".join(["%.3f" % p for p in y_pred_proba[li]])),
                     {'H': 'H--', 'B': '-B-', 'S': '--S'}[annot[li]] or '---',
                     line['text'])
+                typ[annot[li]] += 1
 
             except KeyError:
-                log('TRACE', "     (X.XXX, X.XXX) ---> %s", line['text'])
+                log('MICROTRACE', "     (X.XXX, X.XXX) ---> %s", line['text'])
                 pass
 
         blobtype = max(typ, key=typ.get)

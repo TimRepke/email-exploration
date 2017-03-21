@@ -8,12 +8,12 @@ import os
 import re
 import logging
 from optparse import OptionParser
-import pyArango.connection as ara
+from arango import ArangoClient
 
 logging.addLevelName(5, 'TRACE')
 logging.addLevelName(3, 'MICROTRACE')
-logging.basicConfig(format='%(asctime)s - [%(module)s] %(levelname)s - %(message)s',
-                    datefmt='%H:%M:%S')
+logformat = '%(asctime)s - [%(module)s] %(levelname)s - %(message)s'
+logging.basicConfig(format=logformat, datefmt='%H:%M:%S')
 
 
 def log(lvl, msg, *args, **kwargs):
@@ -96,12 +96,23 @@ class SourceFiles:
 
 
 class DataSinkArango:
-    def __init__(self, user, pw, port=8529, db='enron', collection='mails'):
-        self.connection = ara.Connection(arangoURL='http://127.0.0.1:' + str(port), username=user, password=pw)
-        self.collection = self.connection[db][collection]
+    def __init__(self, user, pw, port=8529, db='enron', collection='mails', save=True, logging=True):
+        self.client = ArangoClient(
+            protocol='http',
+            host='localhost',
+            port=port,
+            username=user,
+            password=pw,
+            enable_logging=logging
+        )
+        self.collection = self.client.database(db).collection(collection)
+        self.save = save
+        log('INFO', 'DataSink connects to port %d for collection "%s" in database "%s", active: %s',
+            port, collection, db, save)
 
     def push(self, doc):
-        self.collection.createDocument()
+        if self.save:
+            d = self.collection.insert(doc)
 
 
 oparser = OptionParser()
@@ -112,13 +123,6 @@ oparser.add_option("-d", "--maildir",
                    help="starting at the root of DIR, all subfolders are read recursively and "
                         "files are interpreted by the pipeline into a sink",
                    default='/home/tim/Uni/HPI/workspace/enron/data/original')
-oparser.add_option("-l", "--log-level",
-                   dest="log_level",
-                   metavar="LEVEL",
-                   help="set log level to LEVEL",
-                   type='choice',
-                   choices=['MICROTRACE', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'],
-                   default='INFO')
 oparser.add_option("-n", "--limit",
                    dest="limit",
                    metavar="NUM",
@@ -145,6 +149,11 @@ oparser.add_option("--path-annotated",
                    type="str",
                    help="path to the DIR containing annotated emails to train neural net for splitting mails",
                    default='/home/tim/Uni/HPI/workspace/enron/pipeline/annotated_mails/')
+oparser.add_option("--no-save",
+                   dest="arango_no_save",
+                   help="set this flag to disable the database sink!",
+                   action="store_false",
+                   default=True)
 oparser.add_option("-u", "--db-user",
                    dest="arango_user",
                    metavar="USER",
@@ -175,18 +184,50 @@ oparser.add_option("--db-collection",
                    type="str",
                    help="name of the collection (COLL) in the database (DB) to use",
                    default='mails')
+oparser.add_option("--log-file",
+                   dest="log_file",
+                   metavar="FILE",
+                   type="str",
+                   help="log is written to FILE according to selected log LEVEL",
+                   default=None)
+oparser.add_option("--log-file-level",
+                   dest="log_file_level",
+                   metavar="LEVEL",
+                   help="set log level to LEVEL",
+                   type='choice',
+                   choices=['MICROTRACE', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'],
+                   default='INFO')
+oparser.add_option("-l", "--log-level",
+                   dest="log_level",
+                   metavar="LEVEL",
+                   help="set log level to LEVEL",
+                   type='choice',
+                   choices=['MICROTRACE', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'],
+                   default='INFO')
+
 
 if __name__ == "__main__":
     (options, args) = oparser.parse_args()
 
     logging.root.setLevel(logging.getLevelName(options.log_level))
 
+    if options.log_file:
+        log('INFO', 'Writing log to file: %s at level %s', options.log_file, options.log_level)
+        hdlr = logging.FileHandler(options.log_file, mode='w')
+        hdlr.setFormatter(logging.Formatter(logformat, datefmt='%H:%M:%S'))
+        hdlr.setLevel(options.log_file_level)
+        logging.root.addHandler(hdlr)
+    else:
+        log('INFO', 'No log file specified.')
+
+
     from splitting_feature_rnn import Splitter
     from mixins import BodyCleanup, Tuples2Dicts
     from header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
+    import io
+    from pprint import pprint
 
     pipeline = Pipeline()
-    pipeline.add(BodyCleanup())
     pipeline.add(Splitter(options.path_annotated, window_size=8, include_signature=options.include_signature,
                           features=None, training_epochs=10, nb_slack_lines=4, retrain=options.keras_retrain,
                           model_path=options.keras_model))
@@ -194,6 +235,7 @@ if __name__ == "__main__":
     pipeline.add(ParseHeaderComponents())
     pipeline.add(ParseAuthors())
     pipeline.add(ParseDate())
+    pipeline.add(BodyCleanup())
 
     # pipeline.prepare()
 
@@ -201,18 +243,24 @@ if __name__ == "__main__":
 
     data_source = SourceFiles(options.maildir, limit=options.limit)
     data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
-                               options.arango_db, options.arango_collection)
+                               options.arango_db, options.arango_collection, save=options.arango_no_save)
+
 
     for path, filename, mail in data_source:
         log('TRACE', 'Got mail from source: %s/%s', path, filename)
         mail, transformed = pipeline.transform(mail)
+
+        if logging.root.level < 5:
+            tmp = io.StringIO()
+            pprint(transformed, stream=tmp)
+            log('MICROTRACE', tmp.getvalue())
 
         maildoc = {
             "message_id": mail['Message-ID'],
             "folder": '/'.join(path.split('/')[2:]),
             "file": path + '/' + filename,
             "owner": path.split('/')[1],
-            "header_raw": mail.items(),
+            "header_raw": dict(mail.items()),
             "body_raw": mail.get_payload(),
             "parts": transformed
         }

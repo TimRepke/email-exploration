@@ -42,9 +42,9 @@ class BodyCleanup:
                    self._transform_string(item[1]), \
                    self._transform_string(item[2]) if self.include_signature else item[2]
         if type(item) == dict:
-            item['body_clean'] = self._transform_string(item['body_raw'])
+            item['body'] = self._transform_string(item['body'])
             if self.include_signature:
-                item['sign_clean'] = self._transform_string(item['sign_raw'])
+                item['signature'] = self._transform_string(item['signature'])
             return item
         return item  # fallback
 
@@ -69,7 +69,7 @@ class Tuples2Dicts:
         pass
 
     def _head2str(self, mail):
-        return 'Date: %s\nFrom: %s\nTo: %s\nCc: %s\nBcc: %s\nSubject: %s'.format(
+        return 'Date: {}\nFrom: {}\nTo: {}\nCc: {}\nBcc: {}\nSubject: {}'.format(
             mail.get('Date', ''),
             mail.get('X-From', '') or mail.get('X-from', '') or mail.get('From', ''),
             mail.get('X-To', '') or mail.get('X-to', '') or mail.get('To', ''),
@@ -81,8 +81,8 @@ class Tuples2Dicts:
         log('TRACE', 'transforming tuples to dicts (parts=%d)', len(processed))
         ret = [{
                    "head_raw": p[0],
-                   "body_raw": p[1],
-                   "sign_raw": p[2]
+                   "body": p[1],
+                   "signature": p[2]
                } for p in processed]
         ret[0]['head_raw'] = self._head2str(mail)
         return ret
