@@ -30,12 +30,13 @@ class Pipeline:
                 pipeline_part.prepare()
         self._is_prepared = True
 
-    def transform(self, raw_mail):
+    def transform(self, raw_mail, transformed=None):
         if not self.is_prepared:
             log('WARN', 'Forgot to prepare pipeline before using. Doing it for you!')
             self.prepare()
 
-        transformed = raw_mail.get_payload()
+        if not transformed:
+            transformed = raw_mail.get_payload()
         for pipeline_part in self.pipeline:
             log('TRACE', 'Calling pipeline part %s', type(pipeline_part))
             transformed = pipeline_part.transform(raw_mail, transformed)
@@ -106,6 +107,42 @@ class SourceFiles:
         return self._next_file()
 
 
+class SourceArango:
+    def __init__(self, user, pw, port=8529, db='enron', logging=True, skip=0, limit=None):
+        self.client = arango.ArangoClient(
+            protocol='http',
+            host='localhost',
+            port=port,
+            username=user,
+            password=pw,
+            enable_logging=logging
+        )
+        self.mailparser = ep.Parser()
+        self.db = self.client.database(db)
+        self.skip = skip
+        self.limit = limit
+
+    def __iter__(self):
+        self.run = 0
+        self.cursor = self.db.aql.execute('FOR m IN mails RETURN m')
+        for i in range(self.skip):
+            self.run += 1
+            next(self.cursor)
+
+        return self
+
+    def __next__(self):
+        if self.limit is not None and self.run >= (self.limit + self.skip):
+            raise StopIteration
+
+        self.run += 1
+        doc = next(self.cursor)
+        head = '\n'.join(['%s: %s' % (k, v) for k, v in doc['header_raw'].items()])
+        mail = self.mailparser.parsestr('%s\r\n%s' % (head, doc['body_raw']))
+
+        return mail, doc
+
+
 class DataSinkArango:
     def __init__(self, user, pw, port=8529, db='enron', collection='mails', save=True, logging=True):
         self.client = arango.ArangoClient(
@@ -130,7 +167,6 @@ class DataSinkArango:
             pass
 
         self.mails = self.client.database(db).collection(collection)
-        self.users = self.client.database(db).collection('users')
 
         self.save = save
         log('INFO', 'DataSink connects to port %d for collection "%s" in database "%s", active: %s',
@@ -138,7 +174,11 @@ class DataSinkArango:
 
     def push(self, doc):
         if self.save:
-            d = self.collection.insert(doc)
+            d = self.mails.insert(doc)
+
+    def update(self, doc):
+        if self.save:
+            self.mails.update(doc)
 
 
 oparser = OptionParser()
@@ -261,40 +301,59 @@ if __name__ == "__main__":
     import io
     from pprint import pprint
 
-    pipeline = Pipeline()
-    pipeline.add(Splitter(options.path_annotated, window_size=8, include_signature=options.include_signature,
-                          features=None, training_epochs=10, nb_slack_lines=4, retrain=options.keras_retrain,
-                          model_path=options.keras_model))
-    pipeline.add(Tuples2Dicts())
-    pipeline.add(ParseHeaderComponents())
-    pipeline.add(ParseAuthors())
-    pipeline.add(ParseDate())
-    pipeline.add(BodyCleanup())
+    if False:
+        pipeline = Pipeline()
+        pipeline.add(Splitter(options.path_annotated, window_size=8, include_signature=options.include_signature,
+                              features=None, training_epochs=10, nb_slack_lines=4, retrain=options.keras_retrain,
+                              model_path=options.keras_model))
+        pipeline.add(Tuples2Dicts())
+        pipeline.add(ParseHeaderComponents())
+        pipeline.add(ParseAuthors())
+        pipeline.add(ParseDate())
+        pipeline.add(BodyCleanup())
 
-    # pipeline.prepare()
+        # pipeline.prepare()
 
-    read_cnt = 0
+        read_cnt = 0
 
-    data_source = SourceFiles(options.maildir, skip=options.skip, limit=options.limit)
-    data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
-                               options.arango_db, options.arango_collection, save=options.arango_no_save)
+        data_source = SourceFiles(options.maildir, skip=options.skip, limit=options.limit)
+        data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, options.arango_collection, save=options.arango_no_save)
 
-    for path, filename, mail in data_source:
-        log('TRACE', 'Got mail from source: %s/%s', path, filename)
-        mail, transformed = pipeline.transform(mail)
+        for path, filename, mail in data_source:
+            log('TRACE', 'Got mail from source: %s/%s', path, filename)
+            mail, transformed = pipeline.transform(mail)
 
-        if logging.root.level < 5:
-            tmp = io.StringIO()
-            pprint(transformed, stream=tmp)
-            log('MICROTRACE', tmp.getvalue())
+            if logging.root.level < 5:
+                tmp = io.StringIO()
+                pprint(transformed, stream=tmp)
+                log('MICROTRACE', tmp.getvalue())
 
-        maildoc = {
-            "message_id": mail['Message-ID'],
-            "folder": '/'.join(path.split('/')[2:]),
-            "file": path + '/' + filename,
-            "owner": path.split('/')[1],
-            "header_raw": dict(mail.items()),
-            "body_raw": mail.get_payload(),
-            "parts": transformed
-        }
-        data_sink.push(maildoc)
+            maildoc = {
+                "message_id": mail['Message-ID'],
+                "folder": '/'.join(path.split('/')[2:]),
+                "file": path + '/' + filename,
+                "owner": path.split('/')[1],
+                "header_raw": dict(mail.items()),
+                "body_raw": mail.get_payload(),
+                "parts": transformed
+            }
+            data_sink.push(maildoc)
+
+    if True:
+        data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, skip=options.skip, limit=options.limit)
+
+        pipeline = Pipeline()
+        pipeline.add(ParseAuthors())
+        pipeline.prepare()
+
+        data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, options.arango_collection, save=options.arango_no_save)
+
+        for mail, doc in data_source:
+            log('TRACE', 'Got mail from source: %s', doc['_id'])
+            mail, transformed = pipeline.transform(mail, doc['parts'])
+
+            doc['parts'] = transformed
+            data_sink.update(doc)
