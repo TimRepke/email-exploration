@@ -87,6 +87,8 @@ class ParseAuthors:
 
     def _prepare_string(self, s):
         s = re.sub(r'\n', '', (s or ''))
+        s = re.sub(r'\s+', ' ', s)
+        s = re.sub(r'((?:\w+ )+),', '\g<1>;', (s or ''))
         s = re.sub(r'<(/\w+=[^/>]+)+>,', ';', (s or ''))
         s = re.sub(r'<(/\w+=[^/>]+)+>', '', (s or ''))
         s = re.sub(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}) ?\[([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\]',
@@ -112,8 +114,9 @@ class ParseAuthors:
     def _process_author(self, s):
         name = re.sub(r"[a-z0-9_\-.]+@[a-z0-9_\-.]+\.[a-z]+", '', (s or ''), flags=re.IGNORECASE).strip()
         name = re.sub(r"@.+$", '', name)
-        name = re.sub(r"\(r\)|\.|\d|\(|\)|\[|\]|=", '', name)
-        name = re.sub(r"\s+", ' ', name)
+        name = re.sub(r"\(r\)|\.|\d|\(|\)|\[|\]|=|<|>", '', name)
+        name = re.sub(r"e-mail", '', name)
+        name = re.sub(r"\s+", ' ', name).strip()
 
         if ',' in name:  # fix format: surname, firstname
             name = ' '.join(reversed([sp.strip() for sp in name.split(',')]))
