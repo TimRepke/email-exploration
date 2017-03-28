@@ -1,5 +1,5 @@
 import re
-from pipeline.logger import log
+from logger import log
 from dateutil.parser import parse as dateparser
 
 
@@ -57,6 +57,9 @@ class ParseHeaderComponents:
                 raw['head'][self._kw2key(kw)] = txt.strip()
                 kw = grp.group(1)
                 kw_end = grp.end()
+            # add dangling rest
+            txt = head[kw_end:]
+            raw['head'][self._kw2key(kw)] = txt.strip()
 
             if ' on ' in raw['head']['from'].lower() and not raw['head']['date']:
                 tmp = raw['head']['from'].lower().split(' on ')

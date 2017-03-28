@@ -5,7 +5,7 @@ import os
 from optparse import OptionParser
 import arango
 
-from pipeline.logger import log
+from logger import log, loglevel, is_lower
 
 
 class Pipeline:
@@ -65,8 +65,8 @@ class SourceFiles:
     def _next_dir(self):
         self.current_root, self.current_dirs, files = next(self.os_walker)
         self.current_stripped = self.current_root[len(self.maildir):]
-        logging.info('Entering directory with %d files and %d subdirectories: %s/',
-                     len(files), len(self.current_dirs), self.current_stripped)
+        log('INFO', 'Entering directory with %d files and %d subdirectories: %s/',
+            len(files), len(self.current_dirs), self.current_stripped)
 
         if len(files) > 0:
             self.current_files = iter(files)
@@ -98,7 +98,7 @@ class SourceFiles:
 
     def __next__(self):
         if self.limit is not None and (self.limit + self.skip) <= self.run:
-            logging.info('max number of mails (LIMIT=%d) is reached.', self.limit)
+            log('INFO', 'max number of mails (LIMIT=%d) is reached.', self.limit)
             raise StopIteration()
 
         return self._next_file()
@@ -273,23 +273,22 @@ oparser.add_option("-p", "--pipeline",
                    metavar="NAME",
                    help="select which pipeline to use",
                    type='choice',
-                   choices=['import', 'fix', 'NER'],
-                   default='INFO')
-oparser.add_option("--no-save",
+                   choices=['import', 'fix', 'NER'])
+oparser.add_option("--db-save",
                    dest="arango_no_save",
                    help="set this flag to disable the database sink!",
-                   action="store_false",
-                   default=True)
-
+                   action="store_true",
+                   default=False)
 
 if __name__ == "__main__":
     (options, args) = oparser.parse_args()
 
-    from pipeline.logger import init as logging_init
+    from logger import init as logging_init
 
-    from pipeline.splitting_feature_rnn import Splitter
-    from pipeline.mixins import BodyCleanup, Tuples2Dicts
-    from pipeline.header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
+    from splitting_feature_rnn import Splitter
+    from mixins import BodyCleanup, Tuples2Dicts
+    from named_entity_recognition import NamedEntityRecognition
+    from header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
     import io
     from pprint import pprint
 
@@ -317,7 +316,7 @@ if __name__ == "__main__":
             log('TRACE', 'Got mail from source: %s/%s', path, filename)
             mail, transformed = pipeline.transform(mail)
 
-            if logging.root.level < 5:
+            if is_lower('TRACE'):
                 tmp = io.StringIO()
                 pprint(transformed, stream=tmp)
                 log('MICROTRACE', tmp.getvalue())
@@ -356,15 +355,22 @@ if __name__ == "__main__":
                                    options.arango_db, skip=options.skip, limit=options.limit)
 
         pipeline = Pipeline()
-        pipeline.add(ParseAuthors())
+        pipeline.add(NamedEntityRecognition())
         pipeline.prepare()
 
         data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
                                    options.arango_db, options.arango_collection, save=options.arango_no_save)
+        from collections import Counter
 
+        l = []
         for mail, doc in data_source:
             log('TRACE', 'Got mail from source: %s', doc['_id'])
             mail, transformed = pipeline.transform(mail, doc['parts'])
 
+            l += transformed
             doc['parts'] = transformed
             data_sink.update(doc)
+
+        pprint(Counter([t[0] for t in l]))
+        pprint(Counter([t[1] for t in l if t[0] == 'PERSON' or t[0] == 'ORG']).most_common(100))
+        print('Total unique Entities: ' + str(len(set([t[1] for t in l]))))

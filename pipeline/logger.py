@@ -18,5 +18,18 @@ def init(options):
         log('INFO', 'No log file specified.')
 
 
+def loglevel(as_int=False):
+    level = logging.root.level
+    if as_int:
+        return level
+    return logging.getLevelName(level)
+
+
+def is_lower(than, le=True):
+    if le:
+        return loglevel(as_int=True) <= logging.getLevelName(than)
+    return loglevel(as_int=True) < logging.getLevelName(than)
+
+
 def log(lvl, msg, *args, **kwargs):
     logging.log(logging.getLevelName(lvl), msg, *args, **kwargs)

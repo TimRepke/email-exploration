@@ -1,5 +1,5 @@
 import re
-from pipeline.logger import log
+from logger import log
 
 
 class BodyCleanup:

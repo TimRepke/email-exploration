@@ -8,7 +8,7 @@ from os import listdir
 from os.path import join, isfile
 from email import parser as ep
 from keras.utils import np_utils
-from pipeline.logger import log
+from logger import log, is_lower
 
 parser = ep.Parser()
 
@@ -272,7 +272,7 @@ class Splitter:
 
         self.model_init_weights, self.model = self.init_lstm_net()
 
-        v = 1 if logging.getLogger().getEffectiveLevel() <= logging.DEBUG else 0
+        v = 1 if is_lower('DEBUG', le=True) else 0
         self.model.fit(X, Y, batch_size=self.window_size, nb_epoch=self.training_epochs, verbose=v)
 
         if self.model_path:
@@ -313,7 +313,7 @@ class Splitter:
                       optimizer='RMSprop',  # opts.Adadelta(),
                       metrics=['accuracy'])
 
-        if logging.getLogger().getEffectiveLevel() < logging.INFO:
+        if is_lower('INFO', le=True) :
             model.summary()
 
         return model.get_weights(), model
