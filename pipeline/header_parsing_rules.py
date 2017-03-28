@@ -1,10 +1,6 @@
 import re
-import logging
+from pipeline.logger import log
 from dateutil.parser import parse as dateparser
-
-
-def log(lvl, msg, *args, **kwargs):
-    logging.log(logging.getLevelName(lvl), msg, *args, **kwargs)
 
 
 class ParseHeaderComponents:
@@ -88,7 +84,7 @@ class ParseAuthors:
     def _prepare_string(self, s):
         s = re.sub(r'\n', '', (s or ''))
         s = re.sub(r'\s+', ' ', s)
-        s = re.sub(r'((?:\w+ )+),', '\g<1>;', (s or ''))
+        s = re.sub(r'((?:\w+ )+\w+),', '\g<1>;', (s or ''))
         s = re.sub(r'<(/\w+=[^/>]+)+>,', ';', (s or ''))
         s = re.sub(r'<(/\w+=[^/>]+)+>', '', (s or ''))
         s = re.sub(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}) ?\[([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\]',

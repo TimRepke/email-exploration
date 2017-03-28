@@ -8,13 +8,9 @@ from os import listdir
 from os.path import join, isfile
 from email import parser as ep
 from keras.utils import np_utils
-import logging
+from pipeline.logger import log
 
 parser = ep.Parser()
-
-
-def log(lvl, msg, *args, **kwargs):
-    logging.log(logging.getLevelName(lvl), msg, *args, **kwargs)
 
 
 cols = ['5special:0',

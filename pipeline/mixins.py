@@ -1,9 +1,5 @@
 import re
-import logging
-
-
-def log(lvl, msg, *args, **kwargs):
-    logging.log(logging.getLevelName(lvl), msg, *args, **kwargs)
+from pipeline.logger import log
 
 
 class BodyCleanup:

@@ -2,13 +2,10 @@
 
 from email import parser as ep
 import os
-import logging
 from optparse import OptionParser
 import arango
 
-
-def log(lvl, msg, *args, **kwargs):
-    logging.log(logging.getLevelName(lvl), msg, *args, **kwargs)
+from pipeline.logger import log
 
 
 class Pipeline:
@@ -221,18 +218,13 @@ oparser.add_option("--path-annotated",
                    type="str",
                    help="path to the DIR containing annotated emails to train neural net for splitting mails",
                    default='/home/tim/Uni/HPI/workspace/enron/pipeline/annotated_mails/')
-oparser.add_option("--no-save",
-                   dest="arango_no_save",
-                   help="set this flag to disable the database sink!",
-                   action="store_false",
-                   default=True)
 oparser.add_option("-u", "--db-user",
                    dest="arango_user",
                    metavar="USER",
                    type="str",
                    help="username to the arangodb",
                    default='root')
-oparser.add_option("-p", "--db-pw",
+oparser.add_option("--db-pw",
                    dest="arango_pw",
                    metavar="PW",
                    type="str",
@@ -276,32 +268,36 @@ oparser.add_option("-l", "--log-level",
                    type='choice',
                    choices=['MICROTRACE', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'],
                    default='INFO')
+oparser.add_option("-p", "--pipeline",
+                   dest="pipeline",
+                   metavar="NAME",
+                   help="select which pipeline to use",
+                   type='choice',
+                   choices=['import', 'fix', 'NER'],
+                   default='INFO')
+oparser.add_option("--no-save",
+                   dest="arango_no_save",
+                   help="set this flag to disable the database sink!",
+                   action="store_false",
+                   default=True)
+
 
 if __name__ == "__main__":
     (options, args) = oparser.parse_args()
 
-    logging.addLevelName(5, 'TRACE')
-    logging.addLevelName(3, 'MICROTRACE')
-    logformat = '%(asctime)s - [%(module)s] %(levelname)s - %(message)s'
-    logging.basicConfig(level=logging.getLevelName(options.log_level),
-                        format=logformat, datefmt='%H:%M:%S')
+    from pipeline.logger import init as logging_init
 
-    if options.log_file:
-        log('INFO', 'Writing log to file: %s at level %s', options.log_file, options.log_file_level)
-        hdlr = logging.FileHandler(options.log_file, mode='w')
-        hdlr.setLevel(logging.getLevelName(options.log_file_level))
-        hdlr.setFormatter(logging.Formatter(logformat, datefmt='%H:%M:%S'))
-        logging.root.addHandler(hdlr)
-    else:
-        log('INFO', 'No log file specified.')
-
-    from splitting_feature_rnn import Splitter
-    from mixins import BodyCleanup, Tuples2Dicts
-    from header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
+    from pipeline.splitting_feature_rnn import Splitter
+    from pipeline.mixins import BodyCleanup, Tuples2Dicts
+    from pipeline.header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
     import io
     from pprint import pprint
 
-    if False:
+    logging_init(options)
+
+    if options.pipeline == 'import':
+        data_source = SourceFiles(options.maildir, skip=options.skip, limit=options.limit)
+
         pipeline = Pipeline()
         pipeline.add(Splitter(options.path_annotated, window_size=8, include_signature=options.include_signature,
                               features=None, training_epochs=10, nb_slack_lines=4, retrain=options.keras_retrain,
@@ -312,13 +308,10 @@ if __name__ == "__main__":
         pipeline.add(ParseDate())
         pipeline.add(BodyCleanup())
 
-        # pipeline.prepare()
-
-        read_cnt = 0
-
-        data_source = SourceFiles(options.maildir, skip=options.skip, limit=options.limit)
         data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
                                    options.arango_db, options.arango_collection, save=options.arango_no_save)
+
+        read_cnt = 0
 
         for path, filename, mail in data_source:
             log('TRACE', 'Got mail from source: %s/%s', path, filename)
@@ -340,7 +333,25 @@ if __name__ == "__main__":
             }
             data_sink.push(maildoc)
 
-    if True:
+    elif options.pipeline == 'fix':
+        data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, skip=options.skip, limit=options.limit)
+
+        pipeline = Pipeline()
+        pipeline.add(ParseAuthors())
+        pipeline.prepare()
+
+        data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, options.arango_collection, save=options.arango_no_save)
+
+        for mail, doc in data_source:
+            log('TRACE', 'Got mail from source: %s', doc['_id'])
+            mail, transformed = pipeline.transform(mail, doc['parts'])
+
+            doc['parts'] = transformed
+            data_sink.update(doc)
+
+    elif options.pipeline == 'NER':
         data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
                                    options.arango_db, skip=options.skip, limit=options.limit)
 
