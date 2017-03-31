@@ -1,0 +1,47 @@
+// This query builds the collection of vertices (unique users) from mails
+FOR m IN mails
+  LET users = FLATTEN(
+      LET innerR = (
+        for p in m.parts
+          for r in p.recipients
+            RETURN {'user': r.name, 'mail': r.email, 'id': m._id}
+        )
+      LET innerS = (
+        FOR p in m.parts
+          RETURN {'user': p.sender.name, 'mail': p.sender.email, 'id': m._id}
+        )
+      RETURN [innerR, innerS]
+    ,2)
+  for u in users
+    collect user=u.user, mail=u.mail into g
+  
+  sort user
+  LET doc = {'cnt': count(g[*]), 'name': user, 'address': mail, 'in_mail':g[*].m._id}
+  
+  INSERT doc IN users
+  RETURN doc
+
+
+// This query creates (unique) edges for all mails and nodes (unique users) in the collections
+FOR m IN mails
+    FOR p in m.parts
+        LET from_id = (
+            FOR u in users
+                FILTER u.name==p.sender.name AND u.address==p.sender.email
+                LIMIT 1
+                RETURN u
+        )[0]._id
+        FOR r in p.recipients
+            LET to_id = (
+                FOR u in users
+                    FILTER u.name==r.name AND u.address==r.email
+                    LIMIT 1
+                    RETURN u
+            )[0]._id
+            
+            
+            UPSERT {'_from': from_id, '_to': to_id, 'date': p.date}
+            INSERT {'_from': from_id, '_to': to_id, 'mail_ids': [m._id], 'kind': r.kind, 'date': p.date}
+            UPDATE {'mail_ids': PUSH(OLD.mail_ids, m._id, true)} IN sent
+            RETURN { doc: NEW, type: OLD ? 'update' : 'insert' }
+
