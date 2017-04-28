@@ -210,7 +210,8 @@ if (!window.clearImmediate) {
       classes: null,
 
       hover: null,
-      click: null
+      click: null,
+      scroll: null
     };
 
     if (options) {
@@ -419,6 +420,27 @@ if (!window.clearImmediate) {
       }
 
       settings.click(info.item, info.dimension, evt);
+      evt.preventDefault();
+    };
+
+    var scroll_zoom = function(item, dimension, evt) {
+      var up = (evt.wheelDelta || -evt.detail) > 0;
+        console.log(item)
+        console.log(dimension)
+    };
+
+    var wordcloudscroll = function wordcloudscroll(evt) {
+      console.log('scroll')
+      var info = getInfoGridFromMouseTouchEvent(evt);
+      console.log(info)
+      if (!info) {
+        return;
+      }
+      if (settings.scroll === 'zoom') {
+        scroll_zoom(info.item, info.dimension, evt);
+      } else {
+        settings.scroll(info.item, info.dimension, evt);
+      }
       evt.preventDefault();
     };
 
@@ -1069,7 +1091,7 @@ if (!window.clearImmediate) {
       }
 
       // fill the infoGrid with empty state if we need it
-      if (settings.hover || settings.click) {
+      if (settings.hover || settings.click || settings.scroll) {
 
         interactive = true;
 
@@ -1081,6 +1103,10 @@ if (!window.clearImmediate) {
 
         if (settings.hover) {
           canvas.addEventListener('mousemove', wordcloudhover);
+        }
+
+        if (settings.scroll) {
+          canvas.addEventListener('mousewheel', wordcloudscroll)
         }
 
         if (settings.click) {
@@ -1097,6 +1123,7 @@ if (!window.clearImmediate) {
 
           canvas.removeEventListener('mousemove', wordcloudhover);
           canvas.removeEventListener('click', wordcloudclick);
+          canvas.removeEventListener('mousewheel', wordcloudscroll);
           hovered = undefined;
         });
       }

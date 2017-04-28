@@ -2,8 +2,9 @@ const express = require('express');
 const path = require('path');
 const parseUrl = require('parseurl');
 const config = require('../utils/config');
-let app = express();
 const logger = require('../utils/logger').l('starquery');
+let app = express();
+let entities = require('./entities.json');
 
 let cache = {};
 
@@ -83,6 +84,45 @@ app.get('/mails', function (req, res, next) {
         logger.error(err.stack);
         res.status(500).send({error: err.stack});
     });
+});
+
+app.get('/entities', function (req, res, next) {
+    logger.debug('Received query params: ');
+    logger.debug(req.query);
+
+    /*
+     'DATE': 121,
+     'ORG': 99,
+     'CARDINAL': 84,
+     'PERSON': 81,
+     'MONEY': 45,
+     'GPE': 26,
+     'TIME': 11,
+     'NORP': 7,
+     'LOC': 6,
+     'ORDINAL': 3,
+     'QUANTITY': 3,
+     'PRODUCT': 2,
+     'FAC': 1,
+     'WORK_OF_ART': 1
+     */
+    let types = (req.query.types || 'ORG').split(',');
+    let min_cnt = req.query.min_cnt || 1;
+
+    let values = Object.values(entities.filter(function(elem){
+        return types.indexOf(elem['type'])>=0;
+    }).reduce(function(accu, e,i){
+        if(!accu[e['name']]) {
+            accu[e['name']] = e;
+            accu[e['name']]['cnt'] = 0;
+        }
+        accu[e['name']]['cnt']++;
+        return accu;
+    }, {})).filter(function(elem){
+        return elem['cnt'] >= min_cnt;
+    });
+
+    res.send(values);
 });
 
 app.get('/star', function (req, res, next) {
