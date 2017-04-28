@@ -12,7 +12,6 @@ from logger import log, is_lower
 
 parser = ep.Parser()
 
-
 cols = ['5special:0',
         'alphnum<10:0',
         'alphnum<50:0',
@@ -89,89 +88,98 @@ def parse_xfrom(xfrom):
     return fn, ln, mail
 
 
-def line_features(body, li, mail):
-    sb = body.splitlines()
+def boo(cond):
+    return 1 if bool(cond) else -1
+
+
+def line_features(sb, li, mail, features):
+    # sb = body.splitlines()
     line = sb[li]
     cline = re.sub(r"^\s*(H|B|S)>(\s*>?)+", "", line)
 
     punctuation = r"(\!|\"|\#|\$|\%|\&|\\|\'|\(|\)|\*|\+|\,|\-|\.|\/|\:|\;|\<|\=|\>|\?|\@|\[|\]|\^|\_|\`|\{|\||\}|\~|\')"
     fn, ln, ml = parse_xfrom(mail['X-From'])
+    l_line = len(line)
 
     feats = {
-        'blank_line:0': len(line.strip()) == 0,
-        'emailpattern:0': bool(re.search(r"[a-z0-9\.\-_]+@[a-z0-9\.\-_]+\.[a-z]{2,3}", line, flags=re.I)),
-        'lastline:0': (len(sb) - 1) == li,
-        'prevToLastLine:0': (len(sb) - 2) == li,
+        'blank_line:0': lambda: boo(len(line.strip()) == 0),
+        'emailpattern:0': lambda: boo(re.search(r"[a-z0-9\.\-_]+@[a-z0-9\.\-_]+\.[a-z]{2,3}", line, flags=re.I)),
+        'lastline:0': lambda: boo((len(sb) - 1) == li),
+        'prevToLastLine:0': lambda: boo((len(sb) - 2) == li),
         # email header pattern
         # url pattern
         # phone number pattern
-        'signatureMarker:0': bool(re.match(r"^\s*\-\-\-*\s*$", line)),
-        '5special:0': bool(re.search(r"^\s*(\*|#|\+|\^|\-|\~|_|\&|\/|\$|\!|\%|\:|\=){5,}", line)),
+        'signatureMarker:0': lambda: boo(re.match(r"^\s*\-\-\-*\s*$", line)),
+        '5special:0': lambda: boo(re.search(r"^\s*(\*|#|\+|\^|\-|\~|_|\&|\/|\$|\!|\%|\:|\=){5,}", line)),
         # typical signature words (dept, university, corp,...)
-        'namePattern:0': bool(re.search(r"[A-Z][a-z]+\s\s?[A-Z]\.?\s\s?[A-Z][a-z]+", line)),
-        'quoteEnd:0': bool(re.search(r"\"$", line)),
-        'containsSenderName_first:0': bool(fn) and fn.lower() in line.lower(),
-        'containsSenderName_last:0': bool(ln) and ln.lower() in line.lower(),
-        'containsSenderName_mail:0': bool(ml) and ml.lower() in line.lower(),
-        'numTabs=1:0': line.count('\t') == 1,
-        'numTabs=2:0': line.count('\t') == 2,
-        'numTabs>=3:0': line.count('\t') >= 3,
-        'punctuation>20:0': len(line) > 0 and (len(re.findall(punctuation, line)) / len(line)) > 0.2,
-        'punctuation>50:0': len(line) > 0 and (len(re.findall(punctuation, line)) / len(line)) > 0.5,
-        'punctuation>90:0': len(line) > 0 and (len(re.findall(punctuation, line)) / len(line)) > 0.9,
-        'typicalMarker:0': bool(re.search(r"^\>", line)),
-        'startWithPunct:0': bool(re.search(r"^" + punctuation, line)),
-        'nextSamePunct:0': True if (li + 1 >= len(sb) or 0 == len(line) == len(sb[li + 1])) else (
-            bool(re.search(r"^" + punctuation, sb[li + 1])) and len(line) > 0 and len(sb[li + 1]) > 0 and
+        'namePattern:0': lambda: boo(re.search(r"[A-Z][a-z]+\s\s?[A-Z]\.?\s\s?[A-Z][a-z]+", line)),
+        'quoteEnd:0': lambda: boo(re.search(r"\"$", line)),
+        'containsSenderName_first:0': lambda: boo(bool(fn) and fn.lower() in line.lower()),
+        'containsSenderName_last:0': lambda: boo(bool(ln) and ln.lower() in line.lower()),
+        'containsSenderName_mail:0': lambda: boo(bool(ml) and ml.lower() in line.lower()),
+        'numTabs=1:0': lambda: boo(line.count('\t') == 1),
+        'numTabs=2:0': lambda: boo(line.count('\t') == 2),
+        'numTabs>=3:0': lambda: boo(line.count('\t') >= 3),
+        'punctuation>20:0': lambda: boo(l_line > 0 and (len(re.findall(punctuation, line)) / l_line) > 0.2),
+        'punctuation>50:0': lambda: boo(l_line > 0 and (len(re.findall(punctuation, line)) / l_line) > 0.5),
+        'punctuation>90:0': lambda: boo(l_line > 0 and (len(re.findall(punctuation, line)) / l_line) > 0.9),
+        'typicalMarker:0': lambda: boo(re.search(r"^\>", line)),
+        'startWithPunct:0': lambda: boo(re.search(r"^" + punctuation, line)),
+        'nextSamePunct:0': lambda: boo(True if (li + 1 >= len(sb) or 0 == l_line == len(sb[li + 1])) else (
+            bool(re.search(r"^" + punctuation, sb[li + 1])) and l_line > 0 and len(sb[li + 1]) > 0 and
             sb[li + 1][
-                0] == line[0]),
-        'prevSamePunct:0': True if (li - 1 >= 0 or 0 == len(line) == len(sb[li - 1])) else (
-            bool(re.search(r"^" + punctuation, sb[li - 1])) and len(line) > 0 and len(sb[li - 1]) > 0 and
+                0] == line[0])),
+        'prevSamePunct:0': lambda: boo(True if (li - 1 >= 0 or 0 == l_line == len(sb[li - 1])) else (
+            bool(re.search(r"^" + punctuation, sb[li - 1])) and l_line > 0 and len(sb[li - 1]) > 0 and
             sb[li - 1][
-                0] == line[0]),
+                0] == line[0])),
         # starts with 1-2 punct followed by reply marker: "^\p{Punct}{1,2}\>"
         # reply line clue: "wrote:$" or "writes:$"
-        'alphnum<90:0': len(line) > 0 and (len(re.findall('[a-zA-Z0-9]', line)) / len(line)) < 0.9,
-        'alphnum<50:0': len(line) > 0 and (len(re.findall('[a-zA-Z0-9]', line)) / len(line)) < 0.5,
-        'alphnum<10:0': len(line) > 0 and (len(re.findall('[a-zA-Z0-9]', line)) / len(line)) < 0.1,
-        'hasWord=fwdby:0': bool(re.search(r"forwarded by", line, flags=re.I)),
-        'hasWord=origmsg:0': bool(re.search(r"original message", line, flags=re.I)),
-        'hasWord=fwdmsg:0': bool(re.search(r"forwarded message", line, flags=re.I)),
-        'hasWord=from:0': bool(re.search(r"from:", cline, flags=re.I)),
-        'hasWord=to:0': bool(re.search(r"to:", cline, flags=re.I)),
-        'hasWord=subject:0': bool(re.search(r"subject:", cline, flags=re.I)),
-        'hasWord=cc:0': bool(re.search(r"cc:", cline, flags=re.I)),
-        'hasWord=bcc:0': bool(re.search(r"bcc:", cline, flags=re.I)),
-        'hasWord=subj:0': bool(re.search(r"subj:", cline, flags=re.I)),
-        'hasWord=date:0': bool(re.search(r"date:", cline, flags=re.I)),
-        'hasWord=sent:0': bool(re.search(r"sent:", cline, flags=re.I)),
-        'hasWord=sentby:0': bool(re.search(r"sent by:", cline, flags=re.I)),
-        'hasWord=fax:0': bool(re.search(r"fax", cline, flags=re.I)),
-        'hasWord=phone:0': bool(re.search(r"phone", cline, flags=re.I)),
-        'hasWord=cell:0': bool(re.search(r"phone", cline, flags=re.I)),
-        'beginswithShape=Xx{2,8}\::0': bool(re.search(r"[A-Z][a-z]{1,7}:", cline)),
-        'hasForm=^dd/dd/dddd dd:dd ww$:0': bool(
+        'alphnum<90:0': lambda: boo(l_line > 0 and (len(re.findall('[a-zA-Z0-9]', line)) / l_line) < 0.9),
+        'alphnum<50:0': lambda: boo(l_line > 0 and (len(re.findall('[a-zA-Z0-9]', line)) / l_line) < 0.5),
+        'alphnum<10:0': lambda: boo(l_line > 0 and (len(re.findall('[a-zA-Z0-9]', line)) / l_line) < 0.1),
+        'hasWord=fwdby:0': lambda: boo(re.search(r"forwarded by", line, flags=re.I)),
+        'hasWord=origmsg:0': lambda: boo(re.search(r"original message", line, flags=re.I)),
+        'hasWord=fwdmsg:0': lambda: boo(re.search(r"forwarded message", line, flags=re.I)),
+        'hasWord=from:0': lambda: boo(re.search(r"from:", cline, flags=re.I)),
+        'hasWord=to:0': lambda: boo(re.search(r"to:", cline, flags=re.I)),
+        'hasWord=subject:0': lambda: boo(re.search(r"subject:", cline, flags=re.I)),
+        'hasWord=cc:0': lambda: boo(re.search(r"cc:", cline, flags=re.I)),
+        'hasWord=bcc:0': lambda: boo(re.search(r"bcc:", cline, flags=re.I)),
+        'hasWord=subj:0': lambda: boo(re.search(r"subj:", cline, flags=re.I)),
+        'hasWord=date:0': lambda: boo(re.search(r"date:", cline, flags=re.I)),
+        'hasWord=sent:0': lambda: boo(re.search(r"sent:", cline, flags=re.I)),
+        'hasWord=sentby:0': lambda: boo(re.search(r"sent by:", cline, flags=re.I)),
+        'hasWord=fax:0': lambda: boo(re.search(r"fax", cline, flags=re.I)),
+        'hasWord=phone:0': lambda: boo(re.search(r"phone", cline, flags=re.I)),
+        'hasWord=cell:0': lambda: boo(re.search(r"phone", cline, flags=re.I)),
+        'beginswithShape=Xx{2,8}\::0': lambda: boo(re.search(r"[A-Z][a-z]{1,7}:", cline)),
+        'hasForm=^dd/dd/dddd dd:dd ww$:0': lambda: boo(
             re.search(r"^\s*\d\d\/\d\d\/\d\d\d\d \d?\d\:\d\d(\:\d\d)? ?(am|pm)?\s*$", cline, flags=re.I)),
-        'hasForm=^dd:dd:dd ww$:0': bool(re.search(r"^\s*\d\d\:\d\d(\:\d\d)? ?(am|pm)\s*$", cline, flags=re.I)),
-        'containsForm=dd/dd/dddd dd:dd ww:0': bool(
+        'hasForm=^dd:dd:dd ww$:0': lambda: boo(re.search(r"^\s*\d\d\:\d\d(\:\d\d)? ?(am|pm)\s*$", cline, flags=re.I)),
+        'containsForm=dd/dd/dddd dd:dd ww:0': lambda: boo(
             re.search(r"on\s*\d\d\/\d\d\/\d\d\d\d \d?\d\:\d\d(\:\d\d)? ?(am|pm)?", cline, flags=re.I)),
-        'hasLDAPthings': bool(re.search(r"\w+ \w+\/[A-Z]{1,4}\/[A-Z]{2,8}@[A-Z]{2,8}", cline))
+        'hasLDAPthings': lambda: boo(re.search(r"\w+ \w+\/[A-Z]{1,4}\/[A-Z]{2,8}@[A-Z]{2,8}", cline))
 
     }
-    feats['containsSenderName_any:0'] = feats['containsSenderName_first:0'] or \
-                                        feats['containsSenderName_last:0'] or \
-                                        feats['containsSenderName_mail:0']
+    feats['containsSenderName_any:0'] = lambda: boo(feats['containsSenderName_first:0']() > 0 or
+                                                    feats['containsSenderName_last:0']() > 0 or
+                                                    feats['containsSenderName_mail:0']() > 0)
 
-    feats['containsMimeWord:0'] = feats['hasWord=from:0'] or feats['hasWord=to:0'] or feats['hasWord=cc:0'] or \
-                                  feats['hasWord=bcc:0'] or feats['hasWord=subject:0'] or feats['hasWord=subj:0'] or \
-                                  feats['hasWord=date:0'] or feats['hasWord=sent:0'] or feats['hasWord=sentby:0']
+    feats['containsMimeWord:0'] = lambda: boo(
+        feats['hasWord=from:0']() > 0 or feats['hasWord=to:0']() > 0 or feats['hasWord=cc:0']() > 0 or
+        feats['hasWord=bcc:0']() > 0 or feats['hasWord=subject:0']() > 0 or feats['hasWord=subj:0']() > 0 or
+        feats['hasWord=date:0']() > 0 or feats['hasWord=sent:0']() > 0 or feats['hasWord=sentby:0']() > 0)
 
-    feats['containsHeaderStart:0'] = feats['hasWord=fwdby:0'] or feats['hasWord=origmsg:0'] or \
-                                     feats['hasWord=fwdmsg:0']
+    feats['containsHeaderStart:0'] = lambda: boo(feats['hasWord=fwdby:0']() > 0 or feats['hasWord=origmsg:0']() > 0 or
+                                                 feats['hasWord=fwdmsg:0']() > 0)
 
-    feats['containsSignatureWord:0'] = feats['hasWord=fax:0'] or feats['hasWord=cell:0'] or feats['hasWord=phone:0']
+    feats['containsSignatureWord:0'] = lambda: boo(
+        feats['hasWord=fax:0']() > 0 or feats['hasWord=cell:0']() > 0 or feats['hasWord=phone:0']() > 0)
 
-    return feats
+    ret = np.array([feats[f]() for f in features])
+
+    return ret
 
 
 class Splitter:
@@ -184,7 +192,7 @@ class Splitter:
         self.training_epochs = training_epochs
         self.nb_slack_lines = nb_slack_lines
         self.retrain = retrain
-        self.model_path=model_path
+        self.model_path = model_path
 
         self._is_prepared = False
 
@@ -196,6 +204,8 @@ class Splitter:
             log('INFO', 'Not including signatures!')
             self.annotation_map = {'H': 0, 'B': 1, 'S': 1}
             self.annotation_map_inv = {0: 'H', 1: 'B'}
+
+        self.nb_classes = len(set(self.annotation_map.values()))
 
     def prepare(self):
         try:
@@ -215,21 +225,16 @@ class Splitter:
 
     def transform(self, mail, processed):
         body = mail.get_payload()
-        tmpx = []
         spl = body.splitlines()
-        for j in range(len(spl)):
-            f = line_features(body, j, mail)
-            f['mail'] = 0    # for compatibility
-            f['anno'] = 'B'  # for compatibility
-            f['line'] = j
-            f['text'] = spl[j]
-            tmpx.append(f)
-        frame = pd.DataFrame(tmpx)
-        nested_X, _, _, nested_index = self._mail2nested(frame)
+
+        X_flat = [line_features(spl, j, mail, self.features) for j in range(len(spl))]
+        y_flat = [1 if self.is_prepared else self.annotation_map[spl[j][0].upper()] for j in range(len(spl))]
+
+        nested_X, _, _, nested_index = self._mail2nested(X_flat, y_flat)
 
         nested_yp = self.model.predict_proba(np.array(nested_X), verbose=0)
         y_proba, y, index = self._flatten_prediction(nested_yp, nested_index)
-        y_fixed, parts = self._prediction2split(y_proba, y, frame, index)
+        y_fixed, parts = self._prediction2split(y_proba, y, spl, index, y_flat)
 
         parts = []
         tmppart = {'H': [], 'B': [], 'S': []}
@@ -266,6 +271,7 @@ class Splitter:
                 f['line'] = j
                 f['text'] = spl[j]
                 f['anno'] = annotations[i][j]
+                f['anno_num'] = self.annotation_map[annotations[i][j]]
                 tmpx.append(f)
 
         X, y, Y, index = self._frame2nested(pd.DataFrame(tmpx))
@@ -304,7 +310,7 @@ class Splitter:
         model.add(Activation('softsign'))
         model.add(Dropout(0.4))
 
-        model.add(Dense(len(set(self.annotation_map.values())),
+        model.add(Dense(self.nb_classes,
                         init='he_uniform',
                         activation='softmax',
                         name='output'))
@@ -313,7 +319,7 @@ class Splitter:
                       optimizer='RMSprop',  # opts.Adadelta(),
                       metrics=['accuracy'])
 
-        if is_lower('INFO', le=True) :
+        if is_lower('INFO', le=True):
             model.summary()
 
         return model.get_weights(), model
@@ -356,50 +362,29 @@ class Splitter:
 
         return mails, bodies, annos
 
-    def _window2vec(self, window):
-        # map boolean values to -1 and 1
-        d = {True: 1, False: -1}
-
-        # get X as matrix, first map boolean values to int
-        X = window.applymap(lambda x: d.get(x, x)).as_matrix(columns=self.features)
-
-        # get Y
-        tmpy = list(window['anno'].apply(lambda x: self.annotation_map.get(x.upper(), 0)))
-        Y = np_utils.to_categorical(tmpy, nb_classes=len(set(self.annotation_map.values())))
-        y = tmpy
-
-        index = list(window.index)
-
-        return X, y, Y, index
-
-    def _mail2nested(self, mailfrm):
+    def _mail2nested(self, X_flat, y_flat):
         X, y, Y, index = [], [], [], []
 
-        lines = mailfrm.sort_values(by='line')
-        ws = (self.window_size if self.window_size else len(lines) - 1)
-        # log('TRACE', 'Mail %d of size %d at windowsize %d (%d)', m, len(body), ws, self.window_size)
-        for wi in range(len(lines) - ws + 1):
-            # make frame of windowsize
-            tmpX, tmpy, tmpY, tmpI = self._window2vec(lines[wi:(wi + ws)])
-            X.append(tmpX)
-            y.append(tmpy)
-            Y.append(tmpY)
-            index.append(tmpI)
+        n_lines = len(X_flat)
+        ws = (self.window_size if self.window_size else n_lines - 1)
+        for wi in range(n_lines - ws + 1):
+            X.append(X_flat[wi:(wi + ws)])
+            y.append(y_flat[wi:(wi + ws)])
+            Y.append(np_utils.to_categorical(y_flat[wi:(wi + ws)], nb_classes=self.nb_classes))
+            index.append(list(range(wi, wi + ws)))
 
-        if len(lines) < ws:
-            tmpX, tmpy, tmpY, tmpI = self._window2vec(lines)
-            tmpX = list(tmpX)
-            tmpy = list(tmpy)
-            tmpY = list(tmpY)
-            for i in range(len(lines), ws):
-                tmpX.append(tmpX[-1])
+        if n_lines < ws:
+            tmpx = list(X_flat)
+            tmpy = list(y_flat)
+            index = list(range(n_lines))
+            for i in range(n_lines, ws):
+                tmpx.append(tmpx[-1])
                 tmpy.append(tmpy[-1])
-                tmpY.append(tmpY[-1])
-                tmpI.append(tmpI[-1])
-            X = [tmpX]
+                index.append(index[-1])
+            X = [tmpx]
             y = [tmpy]
-            Y = [tmpY]
-            index = [tmpI]
+            Y = [np_utils.to_categorical(y, nb_classes=self.nb_classes)]
+            index = [index]
 
         return X, y, Y, index
 
@@ -453,7 +438,7 @@ class Splitter:
 
         return steps_taken
 
-    def _prediction2split(self, y_pred_proba, y_pred, frame, index):
+    def _prediction2split(self, y_pred_proba, y_pred, lines, index, y_flat):
         parts = []
         yp_fixed = []
 
@@ -472,7 +457,7 @@ class Splitter:
         tmpmail = {}
         partcount = 0
         tmpblob = []
-        for li, (n, line) in enumerate(frame.loc[index].iterrows()):
+        for li, (n, line) in enumerate(zip(index, lines)):
             try:
                 if li in breaks:
                     log('MICROTRACE', " ## BREAK ## %s -> %s", typ,
@@ -500,18 +485,18 @@ class Splitter:
                         partcount += 1
                         log('MICROTRACE', ' ### MAILBREAK ###')
 
-                tmpblob.append(line['text'])
+                tmpblob.append(line)
 
                 log('MICROTRACE', '%s %3d. (%s) %s> %s',
-                    line.get('anno', ''),
+                    self.annotation_map_inv[y_flat[n]],
                     li,
                     (", ".join(["%.3f" % p for p in y_pred_proba[li]])),
                     {'H': 'H--', 'B': '-B-', 'S': '--S'}[annot[li]] or '---',
-                    line['text'])
+                    line)
                 typ[annot[li]] += 1
 
             except KeyError:
-                log('MICROTRACE', "     (X.XXX, X.XXX) ---> %s", line['text'])
+                log('MICROTRACE', "     (X.XXX, X.XXX) ---> %s", line)
                 pass
 
         blobtype = max(typ, key=typ.get)
