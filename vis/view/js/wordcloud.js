@@ -1,6 +1,3 @@
-/**
- * Created by tim on 27/04/17.
- */
 
 class WordCloud {
     constructor(baseurl, containerID, {filters=['ORG','PERSON', 'DATE','CARDINAL','MONEY'], active_filters=['ORG','PERSON']}={}) {
@@ -74,10 +71,16 @@ class WordCloud {
                 e.setAttribute('class', 'active');
             e.innerHTML = filter;
             fc.appendChild(e);
-            e.addEventListener('click', function(e) {
-                if (that.active_filters.indexOf(filter) < 0)
+            e.addEventListener('click', function(ev) {
+                if (that.active_filters.indexOf(filter) < 0){
                     that.active_filters.push(filter);
-                else that.active_filters.splice(that.active_filters.indexOf(filter), 1);
+                    e.setAttribute('class', 'active');
+                }
+                else {
+                    that.active_filters.splice(that.active_filters.indexOf(filter), 1);
+
+                    e.setAttribute('class', '');
+                }
                 console.log(filter);
                 console.log(that.active_filters);
                 that.drawReq()

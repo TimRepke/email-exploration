@@ -1,0 +1,190 @@
+.bordered {
+    padding-top: 15px;
+    padding-bottom: 15px;
+    border: 1px solid #ddd;
+}
+
+html, body, .container-fluid {
+    height: 100%;
+}
+body {
+    padding: 10px;
+}
+.fill {
+    min-height: 100%;
+    height: 100%;
+}
+
+#graph {
+    height: 100%;
+    width: 100%;
+    border: 1px solid silver;
+}
+
+#wordcloud_canvas {
+    margin: 0;
+    padding: 0;
+    display: none;
+}
+#wcc > svg {
+    margin: 0;
+    padding: 0;
+}
+
+#wcc svg text {
+    border: 1px dashed grey;
+}
+
+*[hidden] {
+    display: none;
+}
+
+.hoverbox {
+    border: 1px dashed gray;
+    position: absolute;
+    border-radius: 10px;
+    pointer-events:none;
+}
+#wordcloud_selectbox {
+    border: 1px solid gray;
+}
+.cloudbutton {
+    width: 18px;
+    height: 18px;
+    font-weight: bold;
+    border: 1px solid gray;
+    text-align: center;
+    font-size: 14px;
+    padding: 1px 0 0 0;
+    cursor: pointer;
+    position: absolute;
+    top: 5px;
+    left: 5px;
+}
+.cloudbutton:hover {
+    background-color: #E9E9E9;
+}
+#wordcloud_filters {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+}
+#wordcloud_filters > span {
+    float: left;
+    padding: 2px;
+    margin: 0 1px;
+    border: 1px solid darkgrey;
+    cursor: pointer;
+}
+#wordcloud_filters > span:hover {
+    background-color: silver;
+}
+#wordcloud_filters > span.active {
+    text-decoration: underline;
+}
+
+
+#usersearch {
+    position: relative;
+    width: 300px;
+}
+
+#usersearch .glyphicon {
+    position: absolute;
+    pointer-events: none;
+    height:2em;
+    left: 0;
+    margin: 0;
+    padding: 5px;
+}
+#usersearch input {
+    height: 2em;
+    width: 100%;
+    padding: 0 12px 0 25px;
+
+    border-width: 1px;
+    border-style: solid;
+    border-color: #a8acbc #babdcc #c0c3d2;
+}
+/*
+#usersearch input:focus + #usersearch_results {
+    display: block;
+    opacity: 1;
+}*/
+
+#usersearch #usersearch_results {
+    display: none;
+    position: absolute;
+    top: 35px;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    padding: 0;
+    margin: 0;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #cbcfe2 #c8cee7 #c4c7d7;
+    border-radius: 3px;
+    background-color: #fdfdfd;
+}
+
+#usersearch #usersearch_results li { display: block }
+
+#usersearch #usersearch_results li:first-child { margin-top: -1px }
+
+#usersearch #usersearch_results li:first-child:before, #usersearch #usersearch_results li:first-child:after {
+    display: block;
+    content: '';
+    width: 0;
+    height: 0;
+    position: absolute;
+    left: 50%;
+    margin-left: -5px;
+    border: 5px outset transparent;
+}
+
+#usersearch #usersearch_results li:first-child:before {
+    border-bottom: 5px solid #c4c7d7;
+    top: -11px;
+}
+
+#usersearch #usersearch_results li:first-child:after {
+    border-bottom: 5px solid #fdfdfd;
+    top: -10px;
+}
+
+#usersearch #usersearch_results li:first-child:hover:before, #usersearch #usersearch_results li:first-child:hover:after { display: none }
+
+#usersearch #usersearch_results li:last-child { margin-bottom: -1px }
+
+#usersearch #usersearch_results a {
+    display: block;
+    position: relative;
+    margin: 0 -1px;
+    padding: 6px 40px 6px 10px;
+    color: #808394;
+    font-weight: 500;
+    text-shadow: 0 1px #fff;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+
+#usersearch #usersearch_results a span { font-weight: 200 }
+
+#usersearch #usersearch_results a:before {
+    font-family: 'Glyphicons Halflings';
+    content: "\e029";
+    width: 18px;
+    height: 18px;
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    margin-top: -9px;
+}
+
+#usersearch #usersearch_results a:hover {
+    text-decoration: none;
+    color: #fff;
+    border-color: #2380dd #2179d5 #1a60aa;
+    background-color: #338cdf;
+}
