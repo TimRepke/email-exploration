@@ -171,6 +171,8 @@ class ParseDate:
             log('WARN', 'Failed to parse date="%s" which triggered an error: %s', s, e)
 
     def transform(self, mail, processed):
+        # TODO fallback to date from MIME (when not parseable or empty)
+        # TODO add constraints on time to 1998-2003
         for i, part in enumerate(processed):
             processed[i]['date'] = self._parse(part['head']['date'] or '')
         return processed
@@ -180,7 +182,7 @@ class ParseDate:
 #     address = '' if not s else s
 #     address = address.replace('\n', '').replace('\t', '').strip()
 #
-#     # fetch address that has the format "e-mail <'name'bla@enron.com>"
+#     # fetch address that has the format "e-mail <'name'bla.js@enron.com>"
 #     m = re.search(r"e-mail <'?(.*?)['\.](.+?)@(.+?)>", address)
 #     if m:
 #         return {
