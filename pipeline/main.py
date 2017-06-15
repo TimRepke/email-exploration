@@ -4,6 +4,11 @@ from email import parser as ep
 import os
 from optparse import OptionParser
 import arango
+from joblib import Parallel, delayed
+import multiprocessing
+from collections import Counter
+from itertools import repeat
+from tqdm import tqdm
 
 from logger import log, loglevel, is_lower
 
@@ -105,7 +110,7 @@ class SourceFiles:
 
 
 class SourceArango:
-    def __init__(self, user, pw, port=8529, db='enron', logging=True, skip=0, limit=None):
+    def __init__(self, user, pw, port=8529, db='enron', logging=True, skip=0, limit=None, collection='mails'):
         self.client = arango.ArangoClient(
             protocol='http',
             host='localhost',
@@ -118,15 +123,24 @@ class SourceArango:
         self.db = self.client.database(db)
         self.skip = skip
         self.limit = limit
+        self.collection = collection
+        self.count = None
 
     def __iter__(self):
         self.run = 0
-        self.cursor = self.db.aql.execute('FOR m IN mails RETURN m')
+        self.cursor = self.db.aql.execute('FOR m IN ' + self.collection + ' RETURN m', count=True)
+        print('count', next(self.cursor))
+        log('DEBUG', self.cursor.statistics())
+        self.count = self.cursor.count() - self.skip
+        log('DEBUG', 'ArangoSource has %d items, skipping %d, limiting to %d', self.cursor.count(), self.skip, self.limit or -1)
         for i in range(self.skip):
             self.run += 1
             next(self.cursor)
 
         return self
+
+    def __len__(self):
+        return self.count
 
     def __next__(self):
         if self.limit is not None and self.run >= (self.limit + self.skip):
@@ -134,10 +148,14 @@ class SourceArango:
 
         self.run += 1
         doc = next(self.cursor)
-        head = '\n'.join(['%s: %s' % (k, v) for k, v in doc['header_raw'].items()])
-        mail = self.mailparser.parsestr('%s\r\n%s' % (head, doc['body_raw']))
 
-        return mail, doc
+        if self.collection == 'mails':
+            head = '\n'.join(['%s: %s' % (k, v) for k, v in doc['header_raw'].items()])
+            mail = self.mailparser.parsestr('%s\r\n%s' % (head, doc['body_raw']))
+
+            return mail, doc
+        else:
+            return doc
 
 
 class DataSinkArango:
@@ -163,7 +181,7 @@ class DataSinkArango:
         except arango.ArangoError:
             pass
 
-        self.mails = self.client.database(db).collection(collection)
+        self.collection = self.client.database(db).collection(collection)
 
         self.save = save
         log('INFO', 'DataSink connects to port %d for collection "%s" in database "%s", active: %s',
@@ -171,11 +189,11 @@ class DataSinkArango:
 
     def push(self, doc):
         if self.save:
-            d = self.mails.insert(doc)
+            d = self.collection.insert(doc)
 
     def update(self, doc):
         if self.save:
-            self.mails.update(doc)
+            self.collection.update(doc)
 
 
 oparser = OptionParser()
@@ -273,28 +291,73 @@ oparser.add_option("-p", "--pipeline",
                    metavar="NAME",
                    help="select which pipeline to use",
                    type='choice',
-                   choices=['import', 'fix', 'NER'])
+                   choices=['import', 'fix', 'NER', 'exp', 'NER2'])
 oparser.add_option("--db-save",
                    dest="arango_no_save",
                    help="set this flag to disable the database sink!",
                    action="store_true",
                    default=False)
 
+
+class NERWorker:
+    def __init__(self, options, cores=4):
+        self.data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
+                                        options.arango_db, skip=options.skip, limit=options.limit, collection='sent')
+
+        self.pipeline = Pipeline()
+        self.pipeline.add(NamedEntityRecognition())
+        self.pipeline.prepare()
+
+        self.mail_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+                                        options.arango_db, options.arango_collection, save=options.arango_no_save)
+        self.edge_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+                                        options.arango_db, options.arango_collection, save=options.arango_no_save)
+
+        self.cores = cores
+
+    @staticmethod
+    def _work(mail, doc, data_sink, pipeline):
+        log('TRACE', 'Got mail from source: %s', doc['_id'])
+        mail, transformed = pipeline.transform(mail, doc['parts'])
+
+        doc['parts'] = transformed
+        data_sink.update(doc)
+        return transformed
+
+    def work(self):
+        if self.cores == 1:
+            l = []
+            for (mail, doc), sink, line in zip(self.data_source,
+                                               repeat(self.data_sink),
+                                               repeat(self.pipeline)):
+                l += NERWorker._work(mail, doc, sink, line)
+
+        else:
+            results = Parallel(n_jobs=self.cores)(delayed(NERWorker._work)(mail, doc, line)
+                                                  for (mail, doc), line in zip(self.data_source, repeat(self.pipeline)))
+
+            l = [ii for i in results for ii in i]
+
+        pprint(Counter([t[0] for t in l]))
+        pprint(Counter([t[1] for t in l if t[0] == 'ORG']).most_common(100))  # t[0] == 'PERSON' or
+        print('Total unique Entities: ' + str(len(set([t[1] for t in l]))))
+
+
 if __name__ == "__main__":
     (options, args) = oparser.parse_args()
 
     from logger import init as logging_init
 
-    from splitting_feature_rnn import Splitter
-    from mixins import BodyCleanup, Tuples2Dicts
-    from named_entity_recognition import NamedEntityRecognition
-    from header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
     import io
     from pprint import pprint
 
     logging_init(options)
 
     if options.pipeline == 'import':
+        from splitting_feature_rnn import Splitter
+        from mixins import BodyCleanup, Tuples2Dicts
+        from header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
+
         data_source = SourceFiles(options.maildir, skip=options.skip, limit=options.limit)
 
         pipeline = Pipeline()
@@ -333,6 +396,8 @@ if __name__ == "__main__":
             data_sink.push(maildoc)
 
     elif options.pipeline == 'fix':
+        from header_parsing_rules import ParseHeaderComponents, ParseAuthors, ParseDate
+
         data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
                                    options.arango_db, skip=options.skip, limit=options.limit)
 
@@ -351,26 +416,115 @@ if __name__ == "__main__":
             data_sink.update(doc)
 
     elif options.pipeline == 'NER':
+        from named_entity_recognition import NamedEntityRecognition
+
         data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
-                                   options.arango_db, skip=options.skip, limit=options.limit)
+                                   options.arango_db, skip=options.skip, limit=options.limit, collection='sent')
 
         pipeline = Pipeline()
         pipeline.add(NamedEntityRecognition())
         pipeline.prepare()
 
-        data_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+        mail_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
                                    options.arango_db, options.arango_collection, save=options.arango_no_save)
-        from collections import Counter
+        edge_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, options.arango_collection, save=options.arango_no_save)
 
         l = []
-        for mail, doc in data_source:
-            log('TRACE', 'Got mail from source: %s', doc['_id'])
-            mail, transformed = pipeline.transform(mail, doc['parts'])
+        for mail in data_source:
+            maildoc = data_source.db.collection('mails').get(mail['mail_ids'][0].replace('mails/', ''))
+            log('TRACE', 'Got mail from source: %s', maildoc['_id'])
+            mail, transformed = pipeline.transform(maildoc['parts'], maildoc['parts'])
 
             l += transformed
-            doc['parts'] = transformed
-            data_sink.update(doc)
+            a = True
+            for t in transformed:
+                if 'enron' in t[1].lower() and a:
+                    a = False
+                    print('====================================================')
+                    print('====================================================')
+                    print(transformed)
+                    for p in maildoc['parts']:
+                        print(p['body'])
+                        print('------------------------------------------------------')
+
+                        # print({'name': t[1], 'type': t[0], 'mail': maildoc['_id']})
 
         pprint(Counter([t[0] for t in l]))
-        pprint(Counter([t[1] for t in l if t[0] == 'PERSON' or t[0] == 'ORG']).most_common(100))
+        # pprint(Counter([t[1] for t in l if t[0] == 'ORG']).most_common(100))  # t[0] == 'PERSON' or
         print('Total unique Entities: ' + str(len(set([t[1] for t in l]))))
+    elif options.pipeline == 'NER2':
+        from named_entity_recognition import NamedEntityRecognition
+
+        data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, skip=options.skip, limit=options.limit, collection='sent')
+
+        pipeline = Pipeline()
+        pipeline.add(NamedEntityRecognition())
+        pipeline.prepare()
+
+        mail_sink = DataSinkArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, options.arango_collection, save=options.arango_no_save)
+
+        mids = []
+        with open('../vis/routes/cache/raw_ents.json', 'w') as dump:
+            dump.write('[')
+            for mail in tqdm(data_source):
+                if mail['mail_ids'][0] not in mids:
+                    mids.append(mail['mail_ids'][0])
+                    maildoc = data_source.db.collection('mails').get(mail['mail_ids'][0].replace('mails/', ''))
+                    log('TRACE', 'Got mail from source: %s', maildoc['_id'])
+                    mail, transformed = pipeline.transform(maildoc['parts'], maildoc['parts'])
+
+                    for t in transformed:
+                        dump.write(str({
+                            "mid": maildoc['_id'],
+                            "entity": t[1],
+                            "type": t[0],
+                            "part": t[2]
+                        }))
+                        dump.write(',\n')
+                else:
+                    log('DEBUG', 'skip '+mail['mail_ids'][0])
+            dump.write(']')
+
+#cat raw_ents.json | tr "'" '"' > tmp && mv tmp raw_ents.json
+#sed -i -r -e "s/: \"([^\",]+)\"([^\",]+)\",/: \"\1'\2\",/g" raw_ents.json
+
+
+    elif options.pipeline == 'exp':
+        def iv(t):
+            return t.is_alpha
+
+
+        from spacy_singleton import get_nlp_model
+
+        nlp = get_nlp_model()
+        data_source = SourceArango(options.arango_user, options.arango_pw, options.arango_port,
+                                   options.arango_db, skip=options.skip, limit=options.limit, collection='sent')
+        l = []
+        r = []
+        k = 0
+        for mail in data_source:
+            maildoc = data_source.db.collection('mails').get(mail['mail_ids'][0].replace('mails/', ''))
+            for p in maildoc['parts']:
+                s = nlp(p['body'])
+                for e in s.ents:
+                    if e.root.ent_type_ == 'PERSON':
+                        i = e.root.i
+                        if i > k:
+                            if iv(s[i - 1 - k]):
+                                l.append(s[i - 1 - k])
+                        if i < len(s) - 1 - k:
+                            if iv(s[i + 1 + k]):
+                                r.append(s[i + 1 + k])
+        print(['>"' + str(ll) + '"<' for ll in l])
+        print(['>"' + str(rr) + '"<' for rr in r])
+        print(Counter([str(ll) for ll in l]).most_common(40))
+        print(Counter([str(rr) for rr in r]).most_common(40))
+
+
+        # print('========================================= Got mail from source: %s', maildoc['_id'])
+        # for p in maildoc['parts']:
+        #     print(p['body'])
+        #     print('-------......---------......--------......------.....')

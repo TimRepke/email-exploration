@@ -16,6 +16,7 @@ class NamedEntityRecognition:
     def transform(self, mail, processed):
         nlp = get_nlp_model()
 
-        ents = [(e.root.ent_type_, e.text.strip()) for p in processed for e in nlp(p['body']).ents]
+        # ents = [(e.root.ent_type_, e.text.strip()) for p in processed for e in nlp(p['body']).ents]
+        ents = [(e.root.ent_type_, e.text.strip(), pi) for pi, p in enumerate(processed) for e in nlp(p['body']).ents]
 
         return ents
