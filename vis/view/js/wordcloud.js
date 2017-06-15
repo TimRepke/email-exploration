@@ -1,8 +1,8 @@
 
 class WordCloud {
-    constructor(baseurl, containerID, {filters=['ORG','PERSON', 'DATE','CARDINAL','MONEY'], active_filters=['ORG','PERSON']}={}) {
+    constructor(containerID, {filters=['ORG','PERSON', 'DATE','CARDINAL','MONEY'], active_filters=['ORG','PERSON']}={}) {
         this.wcc = document.getElementById(containerID);
-        this.baseurl = baseurl;
+        this.hover_numbers = document.getElementById('wordcloud_cnt');
         this.fill = d3.scale.category20();
         this.nav = {transX: 0, transY: 0, scale:1};
         this.active_filters = active_filters;
@@ -11,11 +11,13 @@ class WordCloud {
         this.click_rect = null;
         this.layout = null;
         this.wcc_svg = null;
-        this.words = null;
+
+        this.click_active = true;
 
         this.initLayout();
         this.initFilters(filters);
         this.drawReq();
+        this.fontsize = 3;
     }
     initLayout() {
         let that = this;
@@ -24,14 +26,13 @@ class WordCloud {
             .padding(1)
             .rotate(0)
             .fontSize(function (d) {
-                //return Math.sqrt(d.size + 8);
-                return d.size * 3;
-                //return Math.log(d.size);
+                return that.fontsize(d.size);
             })
             .on('end', function(tags, bounds){
-                console.log(bounds)
+                console.log('bounds: '+JSON.stringify(bounds||{}));
                 that.populateSVG(tags);
             });
+
     }
     initSVG() {
         d3.select('#wcc').insert("svg", ":first-child")
@@ -57,6 +58,8 @@ class WordCloud {
             .attr("transform", function(d) {
                 return "translate(" + [d.x, d.y] + ")rotate(" + d.rotate + ")";
             })
+            .attr("e_type", function(d) {return d.type;})
+            .attr("e_cnt", function(d) {return d.cnt;})
             .text(function(d) { return d.text; });
         this.hover_rect = this.spawn_rect({dashed: true});
         this.click_rect = this.spawn_rect();
@@ -133,19 +136,27 @@ class WordCloud {
                 e.target.style.fill = WordCloud.monochromatic(e.target.style.fill, 0.2);
                 if(that.last_hovered) that.last_hovered.style.fill = WordCloud.monochromatic(that.last_hovered.style.fill, 0.2);
                 that.last_hovered = e.target;
-
+                that.hover_rect.setSize(e.target.getAttribute('e_cnt'));
                 that.hover_rect.pos(WordCloud.getEventPos(e))
             }
         });
         this.wcc_svg.addEventListener('mouseleave', function (e) {
             that.last_hovered = undefined;
-            // hover_rect.hide()
+            that.hover_rect.hide()
         });
         
         // select
         this.wcc_svg.addEventListener('click', function(e) {
-            that.click_rect.show();
-            that.click_rect.pos(WordCloud.getEventPos(e));
+            if(that.click_active) {
+                that.click_active = false;
+                that.click_rect.show();
+                that.click_rect.pos(WordCloud.getEventPos(e));
+
+                dataCenter.addEntity(e.target.innerHTML, e.target.getAttribute('e_cnt'));
+                setTimeout(function(){
+                    that.click_active = true;
+                }, 1000);
+            }
         });
     }
     static clearSVG() {
@@ -165,6 +176,7 @@ class WordCloud {
     resetSelections(){
         this.click_rect.hide();
         this.hover_rect.hide();
+        dataCenter.removeEntity(undefined, undefined);
     }
     spawn_rect({dashed=false} = {}) {
         let that = this;
@@ -179,8 +191,9 @@ class WordCloud {
         document.querySelector('#wcc > svg > g').appendChild(rect);
 
         return {
-            show: function() {
+            show: function(cnt) {
                 rect.style.setProperty('display', '');
+                that.hover_numbers.style.display = 'block';
                 hidden = false;
             },
             isHidden: function() {
@@ -188,6 +201,7 @@ class WordCloud {
             },
             hide: function() {
                 rect.style.setProperty('display', 'none');
+                that.hover_numbers.style.display = 'none';
                 hidden = true;
             },
             pos: function({x, y, height, width, transform, trans}) {
@@ -198,6 +212,9 @@ class WordCloud {
                 rect.setAttributeNS(null, 'height', height);
                 rect.setAttributeNS(null, 'width', width);
                 rect.setAttributeNS(null, 'transform', 'translate('+trans.x+','+trans.y+')rotate('+trans.rotate+')');
+            },
+            setSize: function(cnt) {
+                that.hover_numbers.innerHTML = cnt;
             },
             updateStoke: function() {
                 rect.setAttributeNS(null, 'stroke-width', ''+(2/that.nav.scale));
@@ -224,25 +241,36 @@ class WordCloud {
         }
     }
     set words(words) {
-        //this.words = words;
-        //this.layout.words(words);
+        let ma=0, mi = -1;
+        words.forEach(function (w) {
+            if (w.size > ma) ma = w.size;
+            if (w.size < mi || mi < 0) mi = w.size;
+        });
+        let fac = 160/ma;
+        console.log('min: '+mi+' max: '+ma+' factor: '+fac);
+        this.fontsize = function(size){
+            return parseInt(fac*size) + 5;
+
+            //return Math.sqrt(d.size + 8);
+            //return Math.log(d.size);
+        };
+        this.layout
+            .words(words)
+            .start();
     }
-    res2words(res) {
+    static res2words(res) {
         return res.map(function (e) {
-            return {text: e['name'], size: e['cnt']};
+            return {text: e['entity'], size: e['cnt'], cnt: e['cnt'], type: e['type'], mail:e['mail']};
         });
     }
-    req({min=2, types=['ORG','PERSON']}={}) {
-        console.log(this.active_filters)
+    req({min=10, types=['ORG','PERSON']}={}) {
         types = this.active_filters;
-        return jsonReq(this.baseurl+'?min_cnt='+min+'&types='+types.join(','))
+        return dataCenter.getEntities(min, types);
     }
-    drawReq({min=2}={}) {
+    drawReq({min=10}={}) {
         let that = this;
         this.req({min: min, types: this.active_filters}).then(function(res){
-            that.layout
-                .words(that.res2words(res))
-                .start();
+            that.words = WordCloud.res2words(res);
         });
     }
 }

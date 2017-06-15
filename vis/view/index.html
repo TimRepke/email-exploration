@@ -5,30 +5,39 @@
     <title>Email-Exploration</title>
     <link href="css/bootstrap.css" rel="stylesheet"/>
     <link href="css/bootstrap-theme.css" rel="stylesheet"/>
-    <link href="css/main.css" rel="stylesheet" />
+    <link href="css/main.css" rel="stylesheet"/>
 </head>
 <body>
 <div class="container-fluid">
     <div class="row" style="height: 100%">
         <div class="col-md-6 bordered fill">
             <div class="row" style="margin-top:-15px;">
-                <form id="usersearch">
-                    <i class="glyphicon glyphicon-search"></i>
-                    <input id="usersearch_input" type="text" name="term" placeholder="Username..." />
-                    <ul id="usersearch_results"><li><a href="index.html" >Searching...</a></li></ul>
-                </form>
+                <div class="col-sm-4" style="margin-left:-15px;">
+                    <form id="usersearch">
+                        <i class="glyphicon glyphicon-search"></i>
+                        <input id="usersearch_input" type="text" name="term" placeholder="Username..."/>
+                        <ul id="usersearch_results">
+                            <li><a href="index.html">Searching...</a></li>
+                        </ul>
+                    </form>
+                </div>
+                <div class="col-sm-7" id="filter_tags">
+                </div>
             </div>
             <div class="row fill">
                 <div id="graph">
 
                 </div>
+                <div id="network_stop">S</div>
             </div>
         </div>
         <div class="col-md-6" style="height: 100%">
             <div class="row" style="height: 50%">
-                <div class="col-md-12 bordered" style="height: 100%; padding:0;overflow:hidden" id="wcc" >
+                <div class="col-md-12 bordered" style="height: 100%; padding:0;overflow:hidden" id="wcc">
                     <span id="wordcloud_clear" class="cloudbutton glyphicon glyphicon-remove" aria-hidden="true"></span>
-                    <span id="wordcloud_center" class="cloudbutton glyphicon glyphicon-screenshot" aria-hidden="true" style="left:25px;"></span>
+                    <span id="wordcloud_center" class="cloudbutton glyphicon glyphicon-screenshot" aria-hidden="true"
+                          style="left:27px;"></span>
+                    <span id="wordcloud_cnt" class="cloudbutton" aria-hidden="true" style="display: none"></span>
                     <div id="wordcloud_filters"></div>
                 </div>
             </div>
@@ -47,7 +56,7 @@
 <script type="text/javascript" src="js/d3.layout.cloud.js"></script>
 <script type="text/javascript" src="js/color.js"></script>
 <script type="text/javascript" src="js/wordcloud.js"></script>
-<script type="text/javascript" src="js/main.js"> </script>
+<script type="text/javascript" src="js/main.js"></script>
 <!--script type="text/javascript" src="js/wordcloud2.js"></script-->
 <!--script type="text/javascript" src="js/bootstrap.js"></script-->
 </body>
